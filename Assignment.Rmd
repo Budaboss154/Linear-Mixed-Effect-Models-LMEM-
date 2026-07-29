@@ -1,0 +1,594 @@
+---
+title: "LINEAR MIXED EFFECT MODEL ASSIGNMENT"
+author: "Brian Otieno"
+date: "2024-11-14"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+# CASE STUDY 1 : 
+Willing to compare the yields of three (03) varieties (A, B and C) of a crop, a researcher installed a randomized complete block design with six (3) blocks. Each block was divided in three plots which were randomly assigned to the three varieties. The objective of the experiment is to test the effect of the varieties on the crop yield while controlling for environmental factors. The data is available in the file “Cas1.txt”.
+
+1- Identify the variable or factors involved in the experiment and indicate their respective natures.
+
+2- Identify the appropriate model(s) for the collected data.
+
+3- Write the equation(s) of the identified model(s).
+
+4- Run the model(s) in R and perform the appropriate tests (and if applicable, select the best model).
+
+5- Interpret and report the results.
+
+```{r}
+library(tinytex)
+```
+
+
+
+
+```{r}
+## Script Yield Study 
+# Import some library
+library(lme4)
+library(lmtest)
+library(lmerTest)
+library(openxlsx)
+library(ggplot2)
+library(faraway)
+library(car)
+library(tinytex)
+library(dplyr)
+
+
+
+#base <- read.xlsx("C:/Users/ROYAL #COMPUTER/Documents/Master'2_course/Linear_missed_effect/Group_work_yield_dataset/Dataset.xlsx")
+#base
+base=read.csv('Yield_Dataset.csv',header=T)
+base
+```
+
+
+
+# DESCRIPTIVE STATISTICS
+The variables or factors involved in the experiment are:
+
+•	Yield: Quantitative continuous variable
+
+•	Variety:Fixed Categorical variable
+
+•	Block:Random Categorical variable
+
+```{r}
+# Convert Bloc and Variety to factors and Yield to numeric
+base$Bloc <- as.factor(base$Bloc)
+base$Variety <- as.factor(base$Variety)
+base$Yield <- as.numeric(base$Yield)
+```
+
+# VISUALISATIONS
+```{r}
+mean_yields=tapply(base$Yield, list(Varieties = base$Variety, Blocks = base$Bloc), mean)
+mean_yields
+```
+
+We realise  that block 3 gives the best mean yield for variety A and variety B while block 5 gives the mean yield of variety C
+
+Block 3 shows the highest yields overall.
+
+Block 6 shows the lowest yields overall, especially for Variety B
+
+
+
+```{r}
+# Convert to a data frame for easy plotting
+mean_yields_df <- as.data.frame(as.table(mean_yields))
+colnames(mean_yields_df) <- c("Variety", "Bloc", "Mean_Yield")
+```
+```{r}
+colours <- c("black","navy","brown","darkolivegreen1","gold","springgreen4")
+plot(as.factor(LETTERS[1:3]),1:3,ylim=c(40,90),type="n" ,
+ylab="Mean yield",xlab="Varieties")
+points(base$Variety,base$Yield)
+var_means<- mean_yields
+for (i in 1:6) {
+lines(as.factor(LETTERS[1:3]),var_means[,i],col=colours[i],lwd=2)
+}
+legend("topleft",legend =paste("Block",1:6, sep = " "),col=colours, bty="n",lty=1, cex = 0.7)
+```
+This graph gives a look at the variations of mean yield per variety within each block.
+
+
+
+```{r}
+# Load ggplot2
+library(ggplot2)
+
+# Line plot
+ggplot(mean_yields_df, aes(x = Bloc, y = Mean_Yield, color = Variety, group = Variety)) +
+  geom_line(linewidth  = 1) +
+  geom_point(linewidth = 2) +
+  labs(title = "Mean Yield by Variety and Block",
+       x = "Block",
+       y = "Mean Yield") +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+## Key Insights:
+
+1. The graph above shows that the varieties B and C may be pretty much more productive than the variety A in the six blocks
+
+2.	Variety C is generally the best performer but is sensitive to certain block conditions (Block 6).
+
+3.	Variety A is more consistent but consistently lower-yielding than the others in most blocks.
+
+4.	Block 6 is a problematic block for all varieties, particularly B, indicating potentially poor environmental conditions there.
+
+5.	These trends justify including the block-by-variety interaction (1|Bloc:Variety) in the model, as each variety responds differently to block-specific conditions.
+
+Statistically: Including (1|Bloc:Variety) reduces unexplained variability in the model by attributing some of it to the interaction between block and variety.
+
+Practically: It allows for more accurate estimates of variety performance by considering the block-specific differences
+
+
+
+
+
+```{r}
+#The Box plot Visualization
+boxplot(Yield~Variety, col=c("tan1","lightgoldenrod1","skyblue"),data=base)
+```
+The  graph shows the distribution of the yield per variety
+
+```{r}
+#Plot of Mean Variety per bloc
+#ggplot(data = base, aes(x = Bloc, y = Yield, group = Variety, color = Variety)) +
+ # geom_line() +
+ #geom_point(size = 5, alpha = 0.5) +
+ #labs(title = "Variety Mean Per Bloc", x = "Blocks", y = "Yield")
+```
+```{r}
+# Density plot
+ggplot(data=base, aes(x = base$Yield)) +
+  geom_density(fill = "blue", alpha = 0.5,lwd=1) +
+  labs(title = "Density Plot of Yield by Variety", x = "Yield", y = "Density") +
+  theme_minimal()
+```
+The graph suggests that the Yield data  comes from more than one group or population  (different varieties or blocks) 
+
+
+
+```{r}
+ggplot(data=base, aes(x = Yield)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(
+    title = "Density Plot of Yield by Variety",
+    x = "Yield",
+    y = "Density"
+  ) +
+  theme_minimal() +
+  facet_wrap(~ Variety)
+```
+The difference in yield distributions among varieties might be due to genetic differences, environmental conditions, or management practices.
+
+
+
+
+
+```{r}
+#Test for Normality for yield data
+shapiro.test(base$Yield)
+```
+The p-value of the shapiro test is less than 5%, then dependent variable doesn’t follow a normal distribution 
+
+After fitting the model, we would examine the distribution of residuals to check if they approximately follow a normal distribution. If the residuals are approximately normal, the model assumptions are considered met even if the raw Yield data aren’t perfectly normal.
+
+The random intercepts and slopes allow mixed models to accommodate some of the non-normality in the data by modeling variation across groups, which helps reduce the impact of non-normality in the raw data.
+
+# GENERAL MODEL STRUCTURE
+
+## Yield_ijk = B_0 + Beta.Variety_(i) + Alpha0_j + Alpha_j.Bloc_(j) + epsilon_ijk
+
+Where:
+
+B_0 + Beta.Variety_(i) - Fixed component
+
+Alpha0_j + Alpha_j.Bloc_(j) - Random component
+
+epsilon_ijk - Residual
+
+i - (A,B,C)  Variety 
+
+j - (1,2,3,4,5,6) blocs
+
+k -  1,2,3 plots
+
+## Assumptions and Distributions
+
+Alpha0_j ~ N(0,Variance)
+
+ Alpha_j ~ N(0,Variance)
+
+COV(Alpha0_j, Alpha_j) =  Correlation between the random intercept and slope, denoted BY phi
+
+epsilon_ijk ~ N(0,Variance)
+
+
+
+
+
+
+
+
+
+# MODEL DEVELOPMENT
+```{r}
+
+#Random Intercept and Slopes Model:
+model_random_intercept_slopes <- lmer(Yield ~ Variety + (1 + Variety|Bloc), data = base)
+
+```
+The equation of the model
+
+## Yield_ ijk = Beta_0 +Beta_2 ·VarietyB_ij +Beta_3 ·VarietyC_ij +alpha_0(j) +alpha_1(j)*Variety_i +epsilon_ijk
+
+where:
+
+Beta_0: The overall mean yield.
+
+Beta_2 and Beta _3: Fixed effect coefficients for each level of Variety ( B and C), representing the average effect of each variety on yield across all blocks.
+
+alpha_0(j): The random intercept for Bloc j representing the baseline yield for that block.
+
+alpha_1(j):The random slope for Variety within Bloc j, allowing each block to have a unique response to each variety.
+
+epsilon_ij: The residual error term, assumed to follow a normal distribution with mean 0 and variance 
+
+## Why Variety A Is Not Explicitly Listed
+
+In the output of this mixed-effects model, the coefficient for Variety A does not appear because Variety A is used as the reference level. This is a common approach in regression and mixed-effects modeling where one level of a categorical variable (in this case, Variety A) is chosen as the baseline or reference level. The other levels of the categorical variable (Variety B and Variety C) are then compared to this reference.
+
+The model only lists coefficients for Variety B and Variety C because these are contrasts with Variety A. By default, R omits the reference level to avoid multicollinearity, since including a coefficient for every level of Variety would be redundant.
+```{r}
+summary(model_random_intercept_slopes)
+```
+
+```{r}
+#Random intercept and random slope model
+model <- lmer(Yield ~ Variety + (Variety|Bloc), data = base)
+```
+The equation of the model
+
+## Yield_ ijk = Beta_0 +Beta_1 ·VarietyB_ij + Beta_2 ·VarietyC_ij + alpha_0(j) + alpha_1(j)* varietyB_ij +alpha_2(j)*VarietyC_ij +epsilon_ijk
+
+```{r}
+summary(model)
+```
+
+
+```{r}
+#Random Intercept Model:
+model_random_intercept <- lmer(Yield ~ Variety + (1|Bloc), data = base)
+```
+
+The equation of the model
+
+## Yield_ ijk = Beta_0 +Beta_1 ·VarietyB_ij + Beta_2 ·VarietyC_ij +alpha_0(j) + epsilon_ijk
+
+This model allows for block-specific deviations in baseline yield, but assumes the effect of Variety is the same across all blocks.
+
+```{r}
+summary(model_random_intercept)
+```
+
+```{r}
+#Fixed Slopes Model:
+model_fixed_slopes <- lmer(Yield ~ Variety + (1|Bloc) + (0 + Variety), data = base)
+```
+
+The equation of the model
+
+## Yield_ ijk = Beta_0 +Beta_1 ·VarietyB_ij + Beta_2 ·VarietyC_ij +alpha_0(j) + epsilon_ijk
+
+Interpretation: The intercept can vary by block, but the slope for Variety is fixed across all blocks. In other words, Variety has the same effect across all blocks, but each block has its own baseline yield.
+
+This model allows for block-specific variations in the intercept(alpha0_j)and also allows each block to have its own response to the varieties (through alpha1 and alpha2).However, the fixed effects of Variety B and Variety C are shared across all blocks.
+
+(0 + Variety): This term means that the slope for Variety is fixed across blocks (there is no random slope for Variety), but you are still accounting for the possibility that the Variety effect might differ across blocks by allowing the variance of this slope to vary (although here, you are essentially fixing the slope for Variety at the global level).
+
+It assumes that the effect of Variety is the same in all blocks, but each block can still have a different baseline yield.
+
+
+```{r}
+summary(model_fixed_slopes)
+```
+
+
+
+```{r}
+#Fixed Intercept Model:
+model_fixed_intercept <- lm(Yield ~ Variety, data = base)
+```
+```{r}
+summary(model_fixed_intercept)
+```
+
+
+
+```{r}
+#Random Slopes for Variety Model:
+model_random_slopes <- lmer(Yield ~ Variety + (0 + Variety|Bloc), data = base)
+```
+
+The equation of the model
+
+## Yield_ ijk = Beta_0 +Beta_1 ·VarietyB_ij + Beta_2 ·VarietyC_ij + +alpha_0(j)* varietyA_ij + alpha_1(j)* varietyB_ij +alpha_2(j)*VarietyC_ij +epsilon_ijk
+
+the intercept is fixed across blocks, meaning the baseline yield does not differ between blocks.
+
+The slopes for Variety B and Variety C are allowed to vary by block, meaning the effect of Variety on yield can differ from block to block.
+
+(0 + Variety | Bloc): This term means that the effect of Variety (the slopes for Variety) can vary by block, but the intercept is fixed across all blocks. Each block can have a different slope for Variety B and Variety C, but the intercept is constant across blocks.
+
+```{r}
+summary(model_random_slopes)
+```
+
+
+
+
+```{r}
+#Uncorrelated Random Effects Model:
+model_uncorrelated <- lmer(Yield ~ Variety + (1|Bloc) + (1|Bloc:Variety), data = base)
+```
+The equation of the model
+
+## Yield_ ijk = Beta_0 +Beta_1 ·VarietyB_ij + Beta_2 ·VarietyC_ij + alpha0_j  + alpha1_ij + epsilon_ijk
+
+where 
+
+alpha0_j - is the  random intercept Random intercept for each block 
+
+This term captures the deviation of each block’s average yield from the overall mean yield.
+Example: Block 1 might consistently produce yields that are 2 units higher than the overall mean, while Block 2 might produce yields 3 units lower.
+
+alpha1_ij - is the random intercept for the interactions of block and variety
+
+Random intercept for each block-variety combination (ij) This term captures any additional deviation in yield that is specific to a particular variety within a specific block.
+Example: Variety B in Block 1 might have a slightly different yield than Variety B in other blocks, and similarly for other block-variety pairs.
+
+
+```{r}
+summary(model_uncorrelated)
+```
+
+
+
+
+
+
+# MODEL SELECTION
+## Two parameters has been used
+
+```{r}
+models_results <- list(model,model_random_intercept,model_fixed_slopes,model_fixed_intercept,model_random_slopes,model_random_intercept_slopes,model_uncorrelated)
+```
+```{r}
+aic <- lapply(models_results,AIC)
+bic <- lapply(models_results,BIC)
+```
+```{r}
+parameters <- data.frame(unlist(aic),unlist(bic))
+print(parameters)
+```
+```{R}
+model_choice <- data.frame(min(unlist(aic)),min(unlist(bic)))
+model_choice
+```
+Using the Principle of parsimony rule, we select the model 7 i.e model_uncorrelated because it has low AIC and Low BIC
+
+
+
+
+# MODEL INTERPRETATION
+```{r}
+summary(model_uncorrelated)
+```
+## Plotting Random Intercepts
+
+
+
+```{r}
+# Extract random effects from the model (random intercepts for Bloc)
+random_effects <- ranef(model_uncorrelated)$Bloc
+
+# Convert the random effects to a data frame for plotting
+random_effects_df <- data.frame(
+  Bloc = rownames(random_effects),  # Extract Bloc names
+  RandomIntercept = random_effects[, "(Intercept)"]  # Extract random intercepts
+)
+
+# Plot the random intercepts for each Bloc
+ggplot(random_effects_df, aes(x = Bloc, y = RandomIntercept, color = Bloc, group = 1)) +
+  geom_point(size = 3) +  # Points for each Bloc
+  geom_line() +           # Line connecting the points
+  labs(title = "Random Intercepts for Bloc",
+       x = "Bloc",
+       y = "Random Intercept") +
+  theme_minimal() +
+  theme(legend.position = "none")  # Hide legend since it's not needed
+
+```
+## Plot Random Intercepts for Bloc and Variety Interaction
+```{r}
+library(dplyr)
+library(tidyr)
+
+
+# Extract random effects from the model
+random_effects <- ranef(model_uncorrelated)$`Bloc:Variety`
+
+# Convert the random effects to a data frame for plotting
+random_effects_df <- data.frame(
+  Interaction = rownames(random_effects),
+  RandomIntercept = random_effects[, "(Intercept)"]
+)
+
+# Split the interaction term into Bloc and Variety for better visualization
+random_effects_df <- random_effects_df %>%
+  separate(Interaction, into = c("Bloc", "Variety"), sep = ":")
+
+# Plot the random intercepts
+ggplot(random_effects_df, aes(x = Variety, y = RandomIntercept, color = Bloc, group = Bloc)) +
+  geom_point(size = 3) +  # Points for each interaction
+  geom_line() +           # Lines connecting points for each Bloc
+  labs(title = "Random Intercepts for Bloc:Variety Interaction",
+       x = "Variety",
+       y = "Random Intercept") +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  scale_color_discrete(name = "Bloc")
+
+```
+
+
+# MODEL VALIDATION
+## TESTING NORMALITY OF RESIDUAL
+```{r}
+#Test of Shapiro-Wilk
+shapiro.test(residuals(model_uncorrelated))
+```
+Looking at the p-value, one can confirms that the residual do follow a normal distribution
+
+
+## Normal plot of the model
+```{r}
+qqnorm(resid(model_uncorrelated))
+qqline(resid(model_uncorrelated),col="red")
+```
+
+
+
+
+
+
+
+
+##  Overall significance of the model
+
+```{r}
+anova(model_uncorrelated)
+```
+The model is then globally significant
+
+## Significance of random effects
+```{r}
+#variance of random effect= 0 vs variance of random effect> 0 
+rand(model_uncorrelated)
+```
+Considering the p-value, we can conclude that the random effects are significant.
+
+This implies that the random effect accounts for significant variability, and including it improves the model's fit
+
+## Extract residuals
+```{r}
+#residuals_model <- residuals(model_uncorrelated)
+#residuals_model
+```
+```{r}
+# Extract residuals and fitted values from the mixed-effects model
+residuals_model <- resid(model_uncorrelated)
+fitted_model <- fitted(model_uncorrelated)
+
+# Perform the Breusch-Pagan test using residuals and fitted values in an lm model
+bptest(residuals_model ~ fitted_model)
+```
+
+This suggests that there is no strong evidence of heteroscedasticity in the residuals of your model. Therefore, it is reasonable to assume that the variance of the residuals is constant across levels of the fitted values (or independent variables).
+
+```{R}
+ #Perform the Durbin-Watson test on residuals from your mixed model
+dwtest(residuals_model ~ fitted_model)
+```
+Your value of 2.8115 suggests negative autocorrelation in the residuals (since it is greater than 2), meaning that residuals tend to alternate between positive and negative values.
+{DW ranges from 0-4 below 2 autocorrection present above absent}
+
+p-value (0.9988): This is much higher than the typical significance level of 0.05. This high p-value indicates no significant evidence of autocorrelation.
+
+# CONCLUSION
+
+The primary objective of this study was to determine whether crop varieties (A, B, and C) have a significant effect on yield while accounting for environmental variability using a randomized complete block design. The analysis provided clear evidence that variety significantly affects crop yield, as indicated by the statistical tests.
+
+Using a mixed-effects model, we observed significant differences in the mean yields of the three varieties:
+
+Variety C consistently produced the highest yields, indicating superior performance.
+
+Variety B achieved moderate yields, though less consistent across blocks.
+
+Variety A had the lowest yields on average.
+
+Furthermore, the inclusion of random effects for blocks and the block-by-variety interaction demonstrated the importance of controlling for environmental variability. These effects captured block-specific differences and interactions between block conditions and variety performance, underscoring the importance of environmental factors in determining yield.
+
+Thus, the study successfully achieved its objective of testing the effect of varieties on crop yield and demonstrated that the choice of variety is a critical factor in optimizing crop productivity.
+
+```{r}
+# Extract fitted values from the model
+fitted_values <- fitted(model_uncorrelated)
+
+# Create a new data frame with the original data and fitted values
+base_with_fitted <- base %>% 
+  mutate(Fitted_Yield = fitted_values)
+
+# View the first few rows of the new data frame
+head(base_with_fitted)
+
+
+```
+
+```{r}
+base_with_fitted <- base %>%
+  mutate(Fitted_Yield = fitted(model_uncorrelated))
+
+# Plot with different colors for Fitted and Original values
+ggplot(base_with_fitted) +
+  geom_point(aes(x = Yield, y = Fitted_Yield, color = "Fitted Values"), size = 2) + # Fitted values
+  geom_point(aes(x = Yield, y = Yield, color = "Original Values"), size = 2, shape = 17) + # Original values
+  labs(
+    title = "Comparison of Fitted and Original Yield Values",
+    x = "Original Yield",
+    y = "Fitted Yield",
+    color = "Legend"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Fitted Values" = "blue", "Original Values" = "green"))
+```
+
+```{r}
+# Create a new data frame with original data and fitted values
+base_with_fitted <- base %>%
+  mutate(Fitted_Yield = fitted(model_uncorrelated))
+
+# Create density plot
+ggplot(base_with_fitted) +
+  geom_density(aes(x = Yield, color = "Original Yield"), size = 1.2) + # Density for original Yield
+  geom_density(aes(x = Fitted_Yield, color = "Fitted Yield"), size = 1.2, linetype = "dashed") + # Density for fitted values
+  labs(
+    title = "Density Plot of Original and Fitted Yield",
+    x = "Yield",
+    y = "Density",
+    color = "Legend"
+  ) +
+  scale_color_manual(values = c("Original Yield" = "blue", "Fitted Yield" = "red")) +
+  theme_minimal()
+```
+
+
+```{r, out.width = "80%"}
+knitr::include_graphics("D:/Master2BiostatisticsLABEF/LMEM/LinerMixedEffect/LinearMixedEffect/rikz.png")
+```
+
+```{r}
+getwd()
+```
